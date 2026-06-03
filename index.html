@@ -23,7 +23,7 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
-        const guestsRef = ref(db, '');
+        const guestsRef = ref(db, '/');
 
         window.dbUpdate = function(id, data) {
             update(ref(db, 'guests/' + id), data);
