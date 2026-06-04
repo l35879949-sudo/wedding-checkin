@@ -3,13 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>曾陳府喜宴 - 即時報到與桌次查詢系統</title>
+    <title>曾陳府喜宴即時報到</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-        // 已自動替換為您的專屬 Firebase Config 金鑰
         const firebaseConfig = { 
             apiKey: "AIzaSyCc-OOQGB4hTIGNtNh_5bj2_tY3CJwE-0o", 
             authDomain: "wesley-sheryl-wedding.firebaseapp.com", 
@@ -17,170 +16,134 @@
             projectId: "wesley-sheryl-wedding", 
             storageBucket: "wesley-sheryl-wedding.firebasestorage.app", 
             messagingSenderId: "451945793238", 
-            appId: "1:451945793238:web:10a42266269981615a2b77", 
-            measurementId: "G-9CKD5F01X6" 
+            appId: "1:451945793238:web:10a42266269981615a2b77"
         };
 
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
-        const guestsRef = ref(db, '/');
+        const debug = (msg) => document.getElementById('debug-info').innerText = msg;
 
-        window.dbUpdate = function(id, data) {
-            update(ref(db, 'guests/' + id), data);
-        };
-
-        // 監聽資料庫變化並即時更新網頁
-        onValue(guestsRef, (snapshot) => {
-            const data = snapshot.val();
-            if (data) {
-                renderDashboard(data);
-                window.allGuests = data;
-                filterGuests();
+        // 監聽連線狀態
+        onValue(ref(db, '.info/connected'), (snap) => {
+            if (snap.val() === true) {
+                debug("✅ 雲端連線成功！正在讀取名單...");
+            } else {
+                debug("❌ 尚未連上雲端 (請確認網路或Firebase規則)");
             }
         });
+
+        // 讀取賓客資料
+        onValue(ref(db, '/'), (snapshot) => {
+            let data = snapshot.val();
+            console.log("Raw Data:", data); // 除錯用
+
+            if (!data) {
+                debug("⚠️ 連線成功，但資料庫是空的 (請檢查Firebase Data頁面)");
+                return;
+            }
+
+            // 自動尋找資料位置 (不論是在根目錄還是 guests 資料夾下)
+            let guestsData = data.guests ? data.guests : data;
+            
+            // 轉為陣列
+            window.allGuests = Object.keys(guestsData).filter(k => typeof guestsData[k] === 'object').map(key => ({
+                ...guestsData[key],
+                firebaseKey: key
+            }));
+
+            if (window.allGuests.length > 0) {
+                debug(`✅ 成功載入 ${window.allGuests.length} 組賓客資料！`);
+                renderDashboard(window.allGuests);
+                filterGuests();
+            } else {
+                debug("⚠️ 資料格式不對 (請確認 JSON 裡面有 name 和 table 欄位)");
+            }
+        }, (error) => {
+            debug("❌ 讀取被拒絕！請確認 Firebase 規則是否有改為 .read: true");
+        });
+
+        window.dbUpdate = function(key, updateData) {
+            onValue(ref(db, '/'), (snapshot) => {
+                const rootData = snapshot.val();
+                const path = (rootData && rootData.guests) ? `guests/${key}` : `${key}`;
+                update(ref(db, path), updateData);
+            }, { onlyOnce: true });
+        };
     </script>
 </head>
-<body class="bg-slate-50 text-slate-800 antialiased font-sans pb-12">
-
-    <header class="bg-rose-600 text-white sticky top-0 z-50 shadow-md p-4">
-        <div class="max-w-4xl mx-auto">
-            <h1 class="text-xl font-bold text-center mb-1">✦ 曾陳府喜宴即時動態 ✦</h1>
-            <p class="text-xs text-center text-rose-100 mb-3">日期：2026/06/28 午宴 | 地點：煙波大飯店 凡爾賽廳</p>
-            <div class="grid grid-cols-3 gap-2 text-center">
-                <div class="bg-rose-700/50 rounded-lg p-2">
-                    <div class="text-xs text-rose-200">已報到人數</div>
-                    <div id="stat-arrived" class="text-base font-bold">0 / 0</div>
-                </div>
-                <div class="bg-rose-700/50 rounded-lg p-2">
-                    <div class="text-xs text-rose-200">出席進度</div>
-                    <div id="stat-rate" class="text-base font-bold">0%</div>
-                </div>
-                <div class="bg-rose-700/50 rounded-lg p-2">
-                    <div class="text-xs text-rose-200">喜餅發放</div>
-                    <div id="stat-gifts" class="text-base font-bold">0 / 0</div>
-                </div>
+<body class="bg-slate-50 text-slate-900 antialiased pb-12">
+    <header class="bg-rose-600 text-white p-4 shadow-lg sticky top-0 z-50">
+        <div class="max-w-4xl mx-auto text-center">
+            <h1 class="text-xl font-bold">曾陳府喜宴即時報到</h1>
+            <div id="debug-info" class="text-[10px] mt-2 bg-rose-800/40 py-1 px-2 rounded inline-block">正在初始化...</div>
+            
+            <div class="grid grid-cols-3 gap-2 mt-4">
+                <div class="bg-white/10 rounded p-2"><div class="text-[10px]">已報到</div><div id="stat-arrived" class="text-lg font-bold">0</div></div>
+                <div class="bg-white/10 rounded p-2"><div class="text-[10px]">出席率</div><div id="stat-rate" class="text-lg font-bold">0%</div></div>
+                <div class="bg-white/10 rounded p-2"><div class="text-[10px]">喜餅</div><div id="stat-gifts" class="text-lg font-bold">0</div></div>
             </div>
         </div>
     </header>
 
     <main class="max-w-4xl mx-auto p-4 space-y-4">
-        
-        <section class="bg-white rounded-xl shadow-sm p-4">
-            <div class="relative">
-                <input type="text" id="search-input" oninput="filterGuests()" placeholder="輸入賓客姓名、標籤或桌次(1~25)..." 
-                       class="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500 text-base">
-                <span class="absolute left-3 top-3.5 text-slate-400">🔍</span>
-            </div>
-            <div class="flex gap-2 mt-3 overflow-x-auto pb-1 text-sm">
-                <button onclick="setFilter('all')" id="btn-filter-all" class="px-3 py-1.5 rounded-full bg-rose-100 text-rose-700 font-medium whitespace-nowrap">全部賓客</button>
-                <button onclick="setFilter('unattended')" id="btn-filter-unattended" class="px-3 py-1.5 rounded-full bg-slate-100 text-slate-600 whitespace-nowrap">未報到</button>
-                <button onclick="setFilter('gift')" id="btn-filter-gift" class="px-3 py-1.5 rounded-full bg-slate-100 text-slate-600 whitespace-nowrap">需發餅未領</button>
-            </div>
-        </section>
+        <div class="bg-white rounded-2xl shadow-sm border-2 border-rose-100 p-2">
+            <input type="text" id="search-input" oninput="filterGuests()" placeholder="🔍 輸入名字或桌次 (例如: 12)" 
+                   class="w-full px-4 py-3 rounded-xl border-none focus:ring-0 text-lg">
+        </div>
 
-        <section>
-            <h2 class="text-xs font-semibold text-slate-400 mb-2 px-1 uppercase tracking-wider">搜尋結果 / 賓客名冊</h2>
-            <div id="guest-list" class="space-y-2">
-                <div class="text-center py-8 text-slate-400">資料連線中...</div>
+        <div id="guest-list" class="space-y-3">
             </div>
-        </section>
-        
     </main>
 
     <script>
-        let currentFilter = 'all';
-
         function renderDashboard(guests) {
-            let totalCount = 0;
-            let arrivedCount = 0;
-            let totalGifts = 0;
-            let receivedGifts = 0;
-
+            let total = 0, arrived = 0, gTotal = 0, gRec = 0;
             guests.forEach(g => {
-                if(!g) return;
-                totalCount += g.count;
-                if (g.arrived) arrivedCount += g.count;
-                if (g.gift) {
-                    totalGifts++;
-                    if (g.giftReceived) receivedGifts++;
-                }
+                if(!g || !g.name) return;
+                const c = parseInt(g.count) || 0;
+                total += c;
+                if(g.arrived) arrived += c;
+                if(g.gift) { gTotal++; if(g.giftReceived) gRec++; }
             });
-
-            document.getElementById('stat-arrived').innerText = `${arrivedCount} / ${totalCount} 人`;
-            document.getElementById('stat-rate').innerText = totalCount ? `${Math.round((arrivedCount/totalCount)*100)}%` : '0%';
-            document.getElementById('stat-gifts').innerText = `${receivedGifts} / ${totalGifts} 盒`;
-        }
-
-        function setFilter(filterType) {
-            currentFilter = filterType;
-            ['all', 'unattended', 'gift'].forEach(t => {
-                const btn = document.getElementById(`btn-filter-${t}`);
-                if(t === filterType) {
-                    btn.className = "px-3 py-1.5 rounded-full bg-rose-100 text-rose-700 font-medium whitespace-nowrap";
-                } else {
-                    btn.className = "px-3 py-1.5 rounded-full bg-slate-100 text-slate-600 whitespace-nowrap";
-                }
-            });
-            filterGuests();
+            document.getElementById('stat-arrived').innerText = arrived + '/' + total;
+            document.getElementById('stat-rate').innerText = total ? Math.round((arrived/total)*100)+'%' : '0%';
+            document.getElementById('stat-gifts').innerText = gRec + '/' + gTotal;
         }
 
         function filterGuests() {
-            const keyword = document.getElementById('search-input').value.toLowerCase();
-            const listContainer = document.getElementById('guest-list');
-            listContainer.innerHTML = '';
-
+            const kw = document.getElementById('search-input').value.toLowerCase();
+            const list = document.getElementById('guest-list');
             if (!window.allGuests) return;
 
             const filtered = window.allGuests.filter(g => {
-                if (!g) return false;
-                const matchKeyword = g.name.toLowerCase().includes(keyword) || g.table.toString().includes(keyword) || (g.note && g.note.toLowerCase().includes(keyword));
-                
-                if (currentFilter === 'unattended') return matchKeyword && !g.arrived;
-                if (currentFilter === 'gift') return matchKeyword && g.gift && !g.giftReceived;
-                return matchKeyword;
+                if(!g || !g.name) return false;
+                return g.name.toLowerCase().includes(kw) || g.table.toString().includes(kw);
             });
 
-            if(filtered.length === 0) {
-                listContainer.innerHTML = '<div class="bg-white rounded-xl p-8 text-center text-slate-400 shadow-sm">找不到符合條件的賓客</div>';
-                return;
-            }
-
-            filtered.forEach(g => {
-                const card = document.createElement('div');
-                card.className = `p-4 rounded-xl shadow-sm border transition-all ${g.arrived ? 'bg-emerald-50/70 border-emerald-100' : 'bg-white border-slate-100'}`;
-                
-                const isMainTable = g.table.toString() === '主桌' || g.table.toString() === '紅色' || g.table.toString() === '6尺';
-                const tableBadgeColor = isMainTable ? 'bg-red-500 text-white' : 'bg-purple-100 text-purple-700';
-                const tableDisplayText = isMainTable ? '主桌 (紅色桌巾)' : `${g.table} 桌`;
-
-                card.innerHTML = `
-                    <div class="flex justify-between items-start">
-                        <div class="space-y-1">
-                            <div class="flex items-center gap-2 flex-wrap">
-                                <span class="text-base font-bold text-slate-800">${g.name}</span>
-                                <span class="px-2 py-0.5 rounded text-xs font-bold ${tableBadgeColor}">
-                                    ${tableDisplayText}
-                                </span>
-                                <span class="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-medium">${g.count}人</span>
+            list.innerHTML = filtered.map(g => `
+                <div class="p-4 rounded-2xl shadow-sm border transition-all ${g.arrived ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-lg font-black text-slate-800">${g.name}</span>
+                                <span class="px-2 py-0.5 rounded-lg text-xs font-bold ${g.table.toString().includes('主') ? 'bg-red-500 text-white' : 'bg-purple-100 text-purple-700'}">${g.table}桌</span>
+                                <span class="text-xs bg-slate-100 px-2 py-0.5 rounded-full text-slate-500">${g.count}人</span>
                             </div>
-                            <p class="text-xs text-slate-400 font-medium">${g.note || ''}</p>
+                            <div class="text-xs text-slate-400 mt-1">${g.note || ''}</div>
                         </div>
-                        <div class="flex flex-col gap-2 items-end shrink-0">
-                            <button onclick="window.dbUpdate(${g.id - 1}, {arrived: ${!g.arrived}})" 
-                                    class="px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-colors ${g.arrived ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}">
-                                ${g.arrived ? '✓ 已報到' : '確認報到'}
+                        <div class="flex flex-col gap-2">
+                            <button onclick="window.dbUpdate('${g.firebaseKey}', {arrived: ${!g.arrived}})" class="px-5 py-2 rounded-xl text-sm font-black transition-all ${g.arrived ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200' : 'bg-slate-100 text-slate-600'}">
+                                ${g.arrived ? '✓ 已報到' : '報到'}
                             </button>
                             ${g.gift ? `
-                                <button onclick="window.dbUpdate(${g.id - 1}, {giftReceived: ${!g.giftReceived}})" 
-                                        class="px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${g.giftReceived ? 'bg-amber-500 text-white' : 'bg-amber-50 border border-amber-200 text-amber-700'}">
-                                    🎁 ${g.giftReceived ? '喜餅已發' : '未領餅 (點擊發放)'}
+                                <button onclick="window.dbUpdate('${g.firebaseKey}', {giftReceived: ${!g.giftReceived}})" class="text-[10px] py-1 px-2 rounded-lg font-bold border transition-all ${g.giftReceived ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-600 border-amber-200'}">
+                                    🎁 ${g.giftReceived ? '餅已發' : '未領餅'}
                                 </button>
                             ` : ''}
                         </div>
                     </div>
-                `;
-                listContainer.appendChild(card);
-            });
+                </div>
+            `).join('');
         }
     </script>
 </body>
